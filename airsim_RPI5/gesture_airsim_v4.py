@@ -21,17 +21,17 @@ last_send_time = 0.0
 send_interval = 0.10
 
 last_valid_gesture_time = time.time()
-NO_GESTURE_TIMEOUT = 0.20
+NO_GESTURE_TIMEOUT = 0.10
 
 # Real-drone-like safe speeds
 VX_FORWARD = 0.65
-VX_BACKWARD = -0.55
+VX_BACKWARD = -0.90
 VY_RIGHT = 0.55
 VY_LEFT = -0.55
 VZ_UP = -0.45
 VZ_DOWN = 0.45
 YAW_RATE = 18
-CMD_DURATION = 0.12
+CMD_DURATION = 0.18
 
 
 client = airsim.MultirotorClient(ip=PC_IP)
@@ -184,7 +184,7 @@ def send_motion_command():
     last_send_time = now
 
     if current_command == "HOVER":
-        client.moveByVelocityBodyFrameAsync(0, 0, 0, CMD_DURATION)
+        client.hoverAsync()
         last_sent_display = "HOVER"
 
     elif current_command == "FORWARD":
@@ -263,7 +263,9 @@ try:
         else:
             gesture_history.clear()
             stable_gesture = "NONE"
+            raw_gesture = "No Hand"
             current_command = "HOVER"
+            client.hoverAsync()
 
         send_motion_command()
 
