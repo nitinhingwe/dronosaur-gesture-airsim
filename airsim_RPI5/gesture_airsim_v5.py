@@ -1,48 +1,49 @@
-# ====== V5 FINAL (Based on your V4) ======
-
 import time
 import collections
 import cv2
 import mediapipe as mp
 import airsim
 
-PC_IP = "YOUR_PC_IP"
+
+# =============================
+# CONFIG
+# =============================
+PC_IP = "172.26.79.144"   # change to your Windows PC IP
 
 CAMERA_INDEX = 0
 FRAME_W = 480
 FRAME_H = 360
 TARGET_FPS = 30
 
+# =============================
+# SPEED TUNING AREA
+# Change these values for simulation testing
+# =============================
+VX_FORWARD = 1.05
+VX_BACKWARD = -1.00
+VY_RIGHT = 0.85
+VY_LEFT = -0.85
+VZ_UP = -0.65
+VZ_DOWN = 0.65
+YAW_RATE = 26
+CMD_DURATION = 0.22
+SEND_INTERVAL = 0.08
+
+# Lower = faster hover after hand removed
+NO_GESTURE_TIMEOUT = 0.12
+
+# Gesture stability
 gesture_history = collections.deque(maxlen=7)
 stable_gesture = "NONE"
 current_command = "HOVER"
 last_sent_display = "NONE"
-
 last_send_time = 0.0
-send_interval = 0.08   # faster loop
-
 last_valid_gesture_time = time.time()
-NO_GESTURE_TIMEOUT = 0.15
 
-# 🚀 SPEED SYSTEM
-speed_multiplier = 1.0
-MIN_SPEED = 0.6
-MAX_SPEED = 2.0
-SPEED_STEP = 0.2
 
-last_command_time = time.time()
-COMMAND_HOLD_TIME = 0.3
-
-# ⚡ Faster base speeds
-VX_FORWARD = 1.2
-VX_BACKWARD = -1.2
-VY_RIGHT = 1.0
-VY_LEFT = -1.0
-VZ_UP = -0.8
-VZ_DOWN = 0.8
-YAW_RATE = 30
-CMD_DURATION = 0.25
-
+# =============================
+# AIRSIM SETUP
+# =============================
 client = airsim.MultirotorClient(ip=PC_IP)
 client.confirmConnection()
 client.enableApiControl(True)
@@ -54,6 +55,10 @@ time.sleep(1.0)
 client.moveByVelocityBodyFrameAsync(0, 0, -0.5, 0.7).join()
 client.hoverAsync().join()
 
+
+# =============================
+# MEDIAPIPE SETUP
+# =============================
 mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
 
@@ -65,14 +70,26 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.65,
 )
 
+
+# =============================
+# CAMERA SETUP
+# =============================
 cap = cv2.VideoCapture(CAMERA_INDEX)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
 cap.set(cv2.CAP_PROP_FPS, TARGET_FPS)
 
-cv2.namedWindow("Dronosaur Gesture AirSim Bridge V5", cv2.WINDOW_NORMAL)
-cv2.resizeWindow("Dronosaur Gesture AirSim Bridge V5", 720, 520)
+if not cap.isOpened():
+    raise RuntimeError("Could not open USB camera")
 
+WINDOW_NAME = "Dronosaur Gesture AirSim Bridge V5"
+cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+cv2.resizeWindow(WINDOW_NAME, 720, 520)
+
+
+# =============================
+# GESTURE HELPERS
+# =============================
 def fingers_state(hand_landmarks, handedness_label):
     lm = hand_landmarks.landmark
 
@@ -86,166 +103,251 @@ def fingers_state(hand_landmarks, handedness_label):
     else:
         thumb_open = lm[4].x > lm[3].x
 
-    return [int(thumb_open), int(index_up), int(middle_up), int(ring_up), int(pinky_up)]
+    return [
+        int(thumb_open),
+        int(index_up),
+        int(middle_up),
+        int(ring_up),
+        int(pinky_up),
+    ]
 
-def classify_gesture(fingers, lm):
+
+def classify_gesture(fingers, hand_landmarks):
     thumb, index, middle, ring, pinky = fingers
+    lm = hand_landmarks.landmark
 
     others_closed = index == 0 and middle == 0 and ring == 0 and pinky == 0
 
-    thumb_tip_above = lm[4].y < lm[3].y
-    thumb_tip_below = lm[4].y > lm[3].y
+    thumb_tip_above = lm[4].y < lm[3].y and lm[4].y < lm[2].y
+    thumb_tip_below = lm[4].y > lm[3].y and lm[4].y > lm[2].y
 
+    # Thumbs Up -> Up
     if others_closed and thumb_tip_above:
         return "UP"
 
+    # Thumbs Down -> Down
     if others_closed and thumb_tip_below:
         return "DOWN"
 
-    if fingers == [1,1,1,1,1]:
+    # Open Palm -> Yaw Right
+    if fingers == [1, 1, 1, 1, 1]:
         return "YAW_RIGHT"
 
-    if fingers == [0,1,1,0,0]:
+    # Victory -> Forward
+    if fingers == [0, 1, 1, 0, 0]:
         return "FORWARD"
 
-    if fingers == [0,0,0,0,0]:
+    # Fist -> Backward
+    if fingers == [0, 0, 0, 0, 0]:
         return "BACKWARD"
 
-    if fingers == [0,1,0,0,0]:
+    # Index Only -> Right
+    if fingers == [0, 1, 0, 0, 0]:
         return "RIGHT"
 
-    if fingers == [0,0,0,0,1]:
+    # Pinky Only -> Left
+    if fingers == [0, 0, 0, 0, 1]:
         return "LEFT"
 
+    # L Shape -> Yaw Left
     if thumb == 1 and index == 1 and middle == 0 and ring == 0 and pinky == 0:
         return "YAW_LEFT"
 
-    # 🕷️ Spiderman = speed up
-    if fingers == [1,1,0,0,1]:
-        return "SPEED_UP"
-
-    # 🤟 Three fingers = speed down
-    if fingers == [0,1,1,0,1]:
-        return "SPEED_DOWN"
-
     return "UNKNOWN"
 
-def get_stable_gesture(g):
-    gesture_history.append(g)
+
+def get_stable_gesture(current_gesture):
+    gesture_history.append(current_gesture)
+
     if len(gesture_history) < gesture_history.maxlen:
         return "NONE"
 
     most_common = collections.Counter(gesture_history).most_common(1)[0]
+
     if most_common[1] >= 5 and most_common[0] != "UNKNOWN":
         return most_common[0]
 
     return "NONE"
 
-def update_command(stable):
-    global current_command, speed_multiplier, last_valid_gesture_time
 
-    if stable == "SPEED_UP":
-        speed_multiplier = min(MAX_SPEED, speed_multiplier + SPEED_STEP)
-        print(f"Speed ↑ {speed_multiplier}")
-        return
+def update_current_command(stable):
+    global current_command, last_valid_gesture_time
 
-    if stable == "SPEED_DOWN":
-        speed_multiplier = max(MIN_SPEED, speed_multiplier - SPEED_STEP)
-        print(f"Speed ↓ {speed_multiplier}")
-        return
+    valid_commands = [
+        "FORWARD",
+        "BACKWARD",
+        "RIGHT",
+        "LEFT",
+        "UP",
+        "DOWN",
+        "YAW_LEFT",
+        "YAW_RIGHT",
+    ]
 
-    valid = ["FORWARD","BACKWARD","RIGHT","LEFT","UP","DOWN","YAW_LEFT","YAW_RIGHT"]
-
-    if stable in valid:
+    if stable in valid_commands:
         current_command = stable
         last_valid_gesture_time = time.time()
 
-def send_motion():
-    global last_send_time, last_command_time
+
+def force_hover_if_no_valid_gesture():
+    global current_command
+
+    if time.time() - last_valid_gesture_time > NO_GESTURE_TIMEOUT:
+        current_command = "HOVER"
+
+
+def send_motion_command():
+    global last_send_time, last_sent_display
 
     now = time.time()
-    if now - last_send_time < send_interval:
+
+    if now - last_send_time < SEND_INTERVAL:
         return
 
     last_send_time = now
 
-    if current_command != "HOVER":
-        last_command_time = now
-
-    # HOLD behavior
     if current_command == "HOVER":
-        if now - last_command_time < COMMAND_HOLD_TIME:
-            return
         client.hoverAsync()
-        return
+        last_sent_display = "HOVER"
 
-    s = speed_multiplier
-
-    if current_command == "FORWARD":
-        client.moveByVelocityBodyFrameAsync(VX_FORWARD*s,0,0,CMD_DURATION)
+    elif current_command == "FORWARD":
+        client.moveByVelocityBodyFrameAsync(VX_FORWARD, 0, 0, CMD_DURATION)
+        last_sent_display = "FORWARD"
 
     elif current_command == "BACKWARD":
-        client.moveByVelocityBodyFrameAsync(VX_BACKWARD*s,0,0,CMD_DURATION)
+        client.moveByVelocityBodyFrameAsync(VX_BACKWARD, 0, 0, CMD_DURATION)
+        last_sent_display = "BACKWARD"
 
     elif current_command == "RIGHT":
-        client.moveByVelocityBodyFrameAsync(0,VY_RIGHT*s,0,CMD_DURATION)
+        client.moveByVelocityBodyFrameAsync(0, VY_RIGHT, 0, CMD_DURATION)
+        last_sent_display = "RIGHT"
 
     elif current_command == "LEFT":
-        client.moveByVelocityBodyFrameAsync(0,VY_LEFT*s,0,CMD_DURATION)
+        client.moveByVelocityBodyFrameAsync(0, VY_LEFT, 0, CMD_DURATION)
+        last_sent_display = "LEFT"
 
     elif current_command == "UP":
-        client.moveByVelocityBodyFrameAsync(0,0,VZ_UP*s,CMD_DURATION)
+        client.moveByVelocityBodyFrameAsync(0, 0, VZ_UP, CMD_DURATION)
+        last_sent_display = "UP"
 
     elif current_command == "DOWN":
-        client.moveByVelocityBodyFrameAsync(0,0,VZ_DOWN*s,CMD_DURATION)
+        client.moveByVelocityBodyFrameAsync(0, 0, VZ_DOWN, CMD_DURATION)
+        last_sent_display = "DOWN"
 
     elif current_command == "YAW_LEFT":
-        client.rotateByYawRateAsync(-YAW_RATE*s, CMD_DURATION)
+        client.rotateByYawRateAsync(-YAW_RATE, CMD_DURATION)
+        last_sent_display = "YAW_LEFT"
 
     elif current_command == "YAW_RIGHT":
-        client.rotateByYawRateAsync(YAW_RATE*s, CMD_DURATION)
+        client.rotateByYawRateAsync(YAW_RATE, CMD_DURATION)
+        last_sent_display = "YAW_RIGHT"
 
-# ===== LOOP =====
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        current_command = "HOVER"
-        send_motion()
-        continue
+# =============================
+# MAIN LOOP
+# =============================
+prev_time = time.time()
+fps = 0.0
 
-    frame = cv2.flip(frame,1)
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+try:
+    print("Running V5 gesture AirSim control")
+    print("Controls: l=land | q=quit")
 
-    results = hands.process(rgb)
+    while True:
+        ret, frame = cap.read()
 
-    if results.multi_hand_landmarks and results.multi_handedness:
-        lm = results.multi_hand_landmarks[0]
-        label = results.multi_handedness[0].classification[0].label
+        if not ret:
+            current_command = "HOVER"
+            send_motion_command()
+            continue
 
-        mp_draw.draw_landmarks(frame, lm, mp_hands.HAND_CONNECTIONS)
+        frame = cv2.flip(frame, 1)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        fingers = fingers_state(lm,label)
-        raw = classify_gesture(fingers, lm.landmark)
-        stable = get_stable_gesture(raw)
+        results = hands.process(rgb)
 
-        update_command(stable)
+        raw_gesture = "No Hand"
+        hand_label = "None"
+        fingers = None
 
-    else:
-        current_command = "HOVER"
+        now = time.time()
 
-    send_motion()
+        if results.multi_hand_landmarks and results.multi_handedness:
+            hand_landmarks = results.multi_hand_landmarks[0]
+            hand_label = results.multi_handedness[0].classification[0].label
 
-    cv2.putText(frame,f"Cmd: {current_command}",(20,40),
-                cv2.FONT_HERSHEY_SIMPLEX,0.8,(0,255,255),2)
+            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-    cv2.putText(frame,f"Speed: x{speed_multiplier:.1f}",(20,80),
-                cv2.FONT_HERSHEY_SIMPLEX,0.7,(255,255,0),2)
+            fingers = fingers_state(hand_landmarks, hand_label)
+            raw_gesture = classify_gesture(fingers, hand_landmarks)
+            stable_gesture = get_stable_gesture(raw_gesture)
 
-    cv2.imshow("V5",frame)
+            update_current_command(stable_gesture)
 
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord("l"):
-        client.landAsync().join()
-    if key == ord("q"):
-        break
+            if stable_gesture == "NONE":
+                force_hover_if_no_valid_gesture()
+
+        else:
+            gesture_history.clear()
+            stable_gesture = "NONE"
+            raw_gesture = "No Hand"
+            current_command = "HOVER"
+
+        send_motion_command()
+
+        dt = now - prev_time
+        prev_time = now
+
+        if dt > 0:
+            fps = 0.9 * fps + 0.1 * (1.0 / dt)
+
+        cv2.putText(frame, f"Raw Gesture: {raw_gesture}", (20, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2, cv2.LINE_AA)
+
+        cv2.putText(frame, f"Stable Gesture: {stable_gesture}", (20, 70),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.70, (0, 200, 255), 2, cv2.LINE_AA)
+
+        cv2.putText(frame, f"Active Command: {current_command}", (20, 105),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.70, (255, 200, 0), 2, cv2.LINE_AA)
+
+        cv2.putText(frame, f"Last Sent: {last_sent_display}", (20, 140),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.70, (180, 255, 180), 2, cv2.LINE_AA)
+
+        cv2.putText(frame, f"FPS: {fps:.1f}", (20, 175),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.70, (255, 255, 255), 2, cv2.LINE_AA)
+
+        if fingers is not None:
+            cv2.putText(frame, f"Fingers: {fingers} | Hand: {hand_label}", (20, 210),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 0), 2, cv2.LINE_AA)
+
+        cv2.putText(frame, "l=land | q=quit",
+                    (20, frame.shape[0] - 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 200, 255), 2, cv2.LINE_AA)
+
+        cv2.imshow(WINDOW_NAME, frame)
+
+        key = cv2.waitKey(1) & 0xFF
+
+        if key == ord("l"):
+            print("Emergency land triggered")
+            client.landAsync().join()
+            current_command = "HOVER"
+
+        if key == ord("q"):
+            break
+
+finally:
+    print("Cleaning up...")
+
+    try:
+        client.hoverAsync().join()
+        client.armDisarm(False)
+        client.enableApiControl(False)
+    except Exception:
+        pass
+
+    cap.release()
+    hands.close()
+    cv2.destroyAllWindows()
+
+    print("Finished")
