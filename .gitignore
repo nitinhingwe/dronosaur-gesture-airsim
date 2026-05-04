@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Env
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+
+# Models (optional for now)
+models/
+hailo/hef_models/
+
+# Temporary
+*.log

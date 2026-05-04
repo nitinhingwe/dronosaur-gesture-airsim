@@ -1,0 +1,23 @@
+pc_ip: "172.26.76.171"
+
+camera:
+  index: 0
+  width: 480
+  height: 360
+  fps: 30
+
+speed:
+  forward: 1.05
+  backward: -1.00
+  right: 0.85
+  left: -0.85
+  up: -0.65
+  down: 0.65
+  yaw_rate: 26
+  command_duration: 0.22
+  send_interval: 0.08
+
+gesture:
+  history_size: 7
+  min_votes: 5
+  no_gesture_timeout: 0.12
