@@ -21,3 +21,4 @@ hailo/hef_models/
 
 # Temporary
 *.log
+.gstreamer*

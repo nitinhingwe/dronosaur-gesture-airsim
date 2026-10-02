@@ -8,7 +8,7 @@ import airsim
 # =============================
 # CONFIG
 # =============================
-PC_IP = "172.26.79.22"   # change to your Windows PC IP
+PC_IP = "172.26.76.129"   # change to your Windows PC IP
 
 CAMERA_INDEX = 0
 FRAME_W = 480
