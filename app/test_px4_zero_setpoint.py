@@ -47,7 +47,7 @@ def main():
             )
 
         print()
-        print("Sending ZERO velocity setpoints for 15 seconds...")
+        print("Sending ZERO velocity setpoints for 60 seconds...")
         print("Aircraft must remain DISARMED.")
         print()
 

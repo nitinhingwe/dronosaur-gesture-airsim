@@ -147,6 +147,78 @@ class PX4OffboardAdapter:
             down=0.0,
             yaw_rate=0.0
         )
+        
+    def set_command(self, command, velocity_cfg):
+        """
+        Convert Dronosaur semantic commands into PX4 BODY_NED
+        velocity setpoints.
+
+        BODY_NED:
+            +X = forward
+            +Y = right
+            +Z = down
+
+        Vehicle remains controlled only by the existing
+        Offboard stream. This function does NOT arm or change mode.
+        """
+
+        import math
+
+        forward = 0.0
+        right = 0.0
+        down = 0.0
+        yaw_rate = 0.0
+
+        if command == "FORWARD":
+            forward = abs(float(velocity_cfg["forward"]))
+
+        elif command == "BACKWARD":
+            forward = -abs(float(velocity_cfg["backward"]))
+
+        elif command == "RIGHT":
+            right = abs(float(velocity_cfg["right"]))
+
+        elif command == "LEFT":
+            right = -abs(float(velocity_cfg["left"]))
+
+        elif command == "UP":
+            down = -abs(float(velocity_cfg["up"]))
+
+        elif command == "DOWN":
+            down = abs(float(velocity_cfg["down"]))
+
+        elif command == "YAW_RIGHT":
+            yaw_rate = math.radians(
+                abs(float(velocity_cfg["yaw_rate"]))
+            )
+
+        elif command == "YAW_LEFT":
+            yaw_rate = -math.radians(
+                abs(float(velocity_cfg["yaw_rate"]))
+            )
+
+        elif command in ("HOVER", "NONE", "UNKNOWN"):
+            pass
+
+        else:
+            print(
+                f"Unknown command '{command}' -> HOVER"
+            )
+
+        self.set_velocity_body(
+            forward=forward,
+            right=right,
+            down=down,
+            yaw_rate=yaw_rate
+        )
+
+        return {
+            "command": command,
+            "vx": forward,
+            "vy": right,
+            "vz": down,
+            "yaw_rate_rad_s": yaw_rate
+        }
 
     def start_stream(self):
         if self.master is None:
