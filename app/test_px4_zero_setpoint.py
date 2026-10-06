@@ -24,12 +24,12 @@ def main():
 
     if cfg["safety"]["allow_arm"]:
         raise RuntimeError(
-            "Safety stop: allow_arm must be false."
+            "SAFETY STOP: allow_arm must be false."
         )
 
     if cfg["safety"]["allow_takeoff"]:
         raise RuntimeError(
-            "Safety stop: allow_takeoff must be false."
+            "SAFETY STOP: allow_takeoff must be false."
         )
 
     adapter = PX4OffboardAdapter(
@@ -41,14 +41,26 @@ def main():
     try:
         adapter.connect()
 
+        if adapter.is_armed():
+            raise RuntimeError(
+                "SAFETY STOP: vehicle is armed."
+            )
+
         print()
-        print("Sending ZERO velocity setpoints for 10 seconds...")
+        print("Sending ZERO velocity setpoints for 15 seconds...")
         print("Aircraft must remain DISARMED.")
+        print()
 
-        adapter.start_zero_stream()
+        # Current adapter API
+        adapter.set_zero()
+        adapter.start_stream()
 
-        for remaining in range(10, 0, -1):
-            print(f"Zero stream: {remaining}s remaining")
+        for remaining in range(60, 0, -1):
+            print(
+                f"Zero stream active | "
+                f"{remaining:02d}s remaining | "
+                f"Armed: {adapter.is_armed()}"
+            )
             time.sleep(1)
 
         print()
