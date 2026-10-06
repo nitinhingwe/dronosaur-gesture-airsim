@@ -18,3 +18,15 @@ velocity:
   up: -0.2
   down: 0.2
   yaw_rate: 10
+
+camera:
+  index: 0
+  width: 480
+  height: 360
+  fps: 30
+
+gesture:
+  history_size: 9
+  min_votes: 6
+  no_gesture_timeout: 0.30
+  command_cooldown: 0.25
