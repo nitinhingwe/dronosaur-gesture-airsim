@@ -5,6 +5,7 @@ connection:
 safety:
   bench_read_only: true
   allow_arm: false
+  allow_bench_arm_test: true
   allow_takeoff: false
 
 control:
